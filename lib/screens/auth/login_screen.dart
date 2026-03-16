@@ -320,10 +320,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           side: const BorderSide(color: AppColors.greyLight, width: 1.5),
                         ),
-                        child: const Icon(
-                          Icons.g_mobiledata,
-                          size: 32,
-                          color: AppColors.textPrimary,
+                        child: Image.asset(
+                          'assets/icons/google_logo.png',
+                          width: 28,
+                          height: 28,
                         ),
                       ),
                     ),
@@ -340,10 +340,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           side: const BorderSide(color: AppColors.greyLight, width: 1.5),
                         ),
-                        child: const Icon(
-                          Icons.apple,
-                          size: 28,
-                          color: AppColors.textPrimary,
+                        child: Image.asset(
+                          'assets/icons/apple_logo.png',
+                          width: 28,
+                          height: 28,
                         ),
                       ),
                     ),

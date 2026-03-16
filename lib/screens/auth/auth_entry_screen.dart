@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:zuritrails/utils/app_colors.dart';
 import 'package:zuritrails/screens/auth/multi_step_signup/signup_flow_coordinator.dart';
 import 'package:zuritrails/screens/auth/phone_auth_screen.dart';
+import 'package:zuritrails/screens/auth/login_screen.dart';
 
 class AuthEntryScreen extends StatefulWidget {
   const AuthEntryScreen({super.key});
@@ -172,9 +173,22 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
               const SizedBox(height: 12),
 
               _buildSocialButton(
-                icon: Icons.facebook,
+                icon: Icons.email_outlined,
+                label: 'Continue with Email',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              _buildSocialButtonWithImage(
+                imagePath: 'assets/icons/facebook_logo.png',
                 label: 'Sign up with Facebook',
-                iconColor: const Color(0xFF1877F2),
                 onTap: () {
                   // TODO: Implement Facebook signup
                 },
@@ -182,10 +196,9 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
 
               const SizedBox(height: 12),
 
-              _buildSocialButton(
-                icon: Icons.g_mobiledata,
+              _buildSocialButtonWithImage(
+                imagePath: 'assets/icons/google_logo.png',
                 label: 'Sign up with Google',
-                iconColor: const Color(0xFF4285F4),
                 onTap: () {
                   // TODO: Implement Google signup
                 },
@@ -193,10 +206,9 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
 
               const SizedBox(height: 12),
 
-              _buildSocialButton(
-                icon: Icons.apple,
+              _buildSocialButtonWithImage(
+                imagePath: 'assets/icons/apple_logo.png',
                 label: 'Sign up with Apple',
-                iconColor: AppColors.black,
                 onTap: () {
                   // TODO: Implement Apple signup
                 },
@@ -220,7 +232,7 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const PhoneAuthScreen(isSignup: false),
+                            builder: (context) => const LoginScreen(),
                           ),
                         );
                       },
@@ -267,6 +279,48 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
               icon,
               size: 24,
               color: iconColor ?? AppColors.black,
+            ),
+            Expanded(
+              child: Center(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.black,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 40), // Balance the icon space
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSocialButtonWithImage({
+    required String imagePath,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        height: 56,
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.black, width: 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            Image.asset(
+              imagePath,
+              width: 24,
+              height: 24,
             ),
             Expanded(
               child: Center(

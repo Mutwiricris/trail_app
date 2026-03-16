@@ -1,0 +1,940 @@
+zuritrails_srs.mdZuriTrails Backend API Documentation - Authentication & Registration
+Project: ZuriTrails - African Safari Travel Platform
+Frontend: Flutter (Mobile App)
+Backend: Laravel 11 + PostgreSQL
+Purpose: Complete API specification matching Flutter implementation
+Last Updated: January 15, 2026
+
+Table of Contents
+Authentication Overview
+Database Schema
+Simple Email Registration
+Multi-Step Registration (13 Steps)
+Email Login
+Phone Authentication
+Social Login
+Password Management
+Email & Phone Verification
+Session Management
+1. Authentication Overview
+1.1 Supported Authentication Methods
+The ZuriTrails Flutter app supports four authentication flows:
+
+Simple Email Registration - Quick signup with basic info (first name, last name, birthday, email, password)
+Multi-Step Registration - Comprehensive 13-step onboarding flow
+Phone Number + OTP - SMS verification with 6-digit code
+Social Login - Google, Apple, Facebook
+1.2 Standard API Response Format
+Success Response:
+
+{
+  "success": true,
+  "message": "Operation successful",
+  "data": { ... },
+  "meta": {
+    "timestamp": "2026-01-15T15:31:18+03:00",
+    "version": "1.0.0"
+  }
+}
+Error Response:
+
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "email": ["The email has already been taken."]
+  },
+  "meta": {
+    "timestamp": "2026-01-15T15:31:18+03:00",
+    "version": "1.0.0"
+  }
+}
+2. Database Schema
+2.1 Users Table
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- Authentication
+    email VARCHAR(255) UNIQUE,
+    phone_number VARCHAR(20) UNIQUE,
+    password_hash VARCHAR(255),
+    
+    -- Basic Profile (from simple signup)
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    display_name VARCHAR(100),
+    date_of_birth DATE,
+    
+    -- Extended Profile (from multi-step signup)
+    bio TEXT,
+    photo_url VARCHAR(500),
+    gender VARCHAR(20),
+    nationality VARCHAR(100),
+    home_country VARCHAR(100),
+    referral_source VARCHAR(50),
+    
+    -- ID Documents
+    id_number VARCHAR(50),
+    passport_number VARCHAR(50),
+    
+    -- Address
+    address TEXT,
+    city VARCHAR(100),
+    country VARCHAR(100) DEFAULT 'Kenya',
+    postal_code VARCHAR(20),
+    
+    -- Preferences (JSONB arrays)
+    interests JSONB DEFAULT '[]',
+    languages JSONB DEFAULT '[]',
+    travel_styles JSONB DEFAULT '[]',
+    activity_preferences JSONB DEFAULT '[]',
+    dietary_restrictions JSONB DEFAULT '[]',
+    accessibility_needs JSONB DEFAULT '[]',
+    
+    -- Settings
+    preferred_currency VARCHAR(3) DEFAULT 'KES',
+    email_notifications BOOLEAN DEFAULT true,
+    sms_notifications BOOLEAN DEFAULT false,
+    push_notifications BOOLEAN DEFAULT true,
+    location_enabled BOOLEAN DEFAULT false,
+    show_distance_away BOOLEAN DEFAULT true,
+    
+    -- Emergency Contact
+    emergency_contact_name VARCHAR(100),
+    emergency_contact_phone VARCHAR(20),
+    emergency_contact_relation VARCHAR(50),
+    
+    -- Travel Preferences
+    travel_style VARCHAR(50),
+    travel_insurance BOOLEAN DEFAULT false,
+    
+    -- Gamification
+    explorer_level VARCHAR(20) DEFAULT 'explorer',
+    current_xp INTEGER DEFAULT 0,
+    streak_days INTEGER DEFAULT 0,
+    unlocked_badges JSONB DEFAULT '[]',
+    
+    -- Account Settings
+    is_profile_public BOOLEAN DEFAULT true,
+    share_location_with_friends BOOLEAN DEFAULT false,
+    
+    -- Verification Status
+    email_verified_at TIMESTAMP,
+    phone_verified_at TIMESTAMP,
+    
+    -- Metadata
+    last_active_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    deleted_at TIMESTAMP
+);
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_phone ON users(phone_number);
+CREATE INDEX idx_users_level ON users(explorer_level);
+CREATE INDEX idx_users_created ON users(created_at);
+2.2 Personal Access Tokens (Laravel Sanctum)
+CREATE TABLE personal_access_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    tokenable_type VARCHAR(255) NOT NULL,
+    tokenable_id UUID NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    token VARCHAR(64) UNIQUE NOT NULL,
+    abilities TEXT,
+    last_used_at TIMESTAMP,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_tokens_tokenable ON personal_access_tokens(tokenable_type, tokenable_id);
+CREATE INDEX idx_tokens_token ON personal_access_tokens(token);
+2.3 Social Providers Table
+CREATE TABLE social_providers (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(50) NOT NULL,
+    provider_id VARCHAR(255) NOT NULL,
+    provider_token TEXT,
+    provider_refresh_token TEXT,
+    provider_email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(provider, provider_id)
+);
+CREATE INDEX idx_social_providers_user ON social_providers(user_id);
+CREATE INDEX idx_social_providers_email ON social_providers(provider_email);
+2.4 Phone Verifications Table
+CREATE TABLE phone_verifications (
+    id BIGSERIAL PRIMARY KEY,
+    phone_number VARCHAR(20) NOT NULL,
+    otp_code VARCHAR(6) NOT NULL,
+    verification_id VARCHAR(50) UNIQUE NOT NULL,
+    is_verified BOOLEAN DEFAULT false,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number);
+CREATE INDEX idx_phone_verifications_id ON phone_verifications(verification_id);
+3. Simple Email Registration
+Used in: 
+signup_screen.dart
+
+This is the basic signup flow with minimal required fields.
+
+3.1 Endpoint
+POST /api/v1/auth/register
+
+3.2 Request Body
+{
+  "first_name": "Chris",
+  "last_name": "Mutwiri",
+  "date_of_birth": "1995-06-15",
+  "email": "chris@example.com",
+  "password": "SecurePass123!",
+  "password_confirmation": "SecurePass123!"
+}
+3.3 Validation Rules
+[
+    'first_name' => 'required|string|max:100',
+    'last_name' => 'required|string|max:100',
+    'date_of_birth' => 'required|date|before:today|after:' . now()->subYears(100)->toDateString(),
+    'email' => 'required|email|unique:users,email',
+    'password' => 'required|string|min:8|confirmed'
+]
+Password Requirements:
+
+Minimum 8 characters
+Must match password_confirmation
+No specific complexity requirements in simple signup
+Age Validation:
+
+Must be at least 18 years old
+Date must be before today
+Date must be after 1900
+3.4 Success Response (201 Created)
+{
+  "success": true,
+  "message": "Registration successful! Welcome to ZuriTrails.",
+  "data": {
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "chris@example.com",
+      "first_name": "Chris",
+      "last_name": "Mutwiri",
+      "display_name": "Chris Mutwiri",
+      "date_of_birth": "1995-06-15",
+      "age": 30,
+      "photo_url": null,
+      "bio": null,
+      "explorer_level": "explorer",
+      "current_xp": 0,
+      "streak_days": 0,
+      "unlocked_badges": [],
+      "email_verified": false,
+      "phone_verified": false,
+      "profile_completion": 25,
+      "created_at": "2026-01-15T15:31:18+03:00"
+    },
+    "token": {
+      "access_token": "1|abc123def456...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    }
+  }
+}
+3.5 Error Responses
+Email Already Taken (422):
+
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "email": ["The email has already been taken."]
+  }
+}
+Underage User (422):
+
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "date_of_birth": ["You must be at least 18 years old to sign up."]
+  }
+}
+3.6 Backend Processing Steps
+Validate all fields
+Check age requirement (18+)
+Hash password using bcrypt
+Create user record in users table
+Set display_name as first_name + last_name
+Set default values:
+explorer_level = 'explorer'
+current_xp = 0
+streak_days = 0
+profile_completion = 25
+Generate access token (Laravel Sanctum)
+Send welcome email with verification link
+Return user object + token
+4. Multi-Step Registration (13 Steps)
+Used in: 
+multi_step_signup/signup_flow_coordinator.dart
+
+This is the comprehensive onboarding flow that collects detailed user preferences.
+
+4.1 Signup Flow Steps
+Step 1: Welcome Step - Introduction
+Step 2: Birthday Step - Date of birth
+Step 3: Referral Step - How they found the app
+Step 4: Name Step - First and last name
+Step 5: Gender Step - Gender selection
+Step 6: Country Step - Home country
+Step 7: Travel Style Step - Travel preferences
+Step 8: Interests Step - Activity interests
+Step 9: Profile Photo Step - Photo upload (optional)
+Step 10: Notifications Step - Push notification preferences
+Step 11: Activity Preferences Step - Preferred activities
+Step 12: Location Step - GPS permission
+Step 13: Privacy Step - Terms acceptance
+
+4.2 Endpoint
+POST /api/v1/auth/register/multi-step
+
+4.3 Complete Request Body
+{
+  "first_name": "Chris",
+  "last_name": "Mutwiri",
+  "birthday": "1995-06-15",
+  "referral_source": "google_search",
+  "gender": "male",
+  "home_country": "Kenya",
+  "travel_styles": ["adventure", "nature", "cultural"],
+  "interests": ["wildlife", "photography", "hiking", "culture"],
+  "profile_photo_path": "temp/uploads/photo_abc123.jpg",
+  "notifications_enabled": true,
+  "activity_preferences": ["safaris", "hiking", "city_tours"],
+  "location_enabled": true,
+  "show_distance_away": true,
+  "email": "chris@example.com",
+  "password": "SecurePass123!",
+  "password_confirmation": "SecurePass123!"
+}
+4.4 Validation Rules
+[
+    // Step 4: Name
+    'first_name' => 'required|string|max:100',
+    'last_name' => 'required|string|max:100',
+    
+    // Step 2: Birthday
+    'birthday' => 'required|date|before:today|after:1900-01-01',
+    
+    // Step 3: Referral Source
+    'referral_source' => 'nullable|string|in:google_search,social_media,friend,advertisement,app_store,other',
+    
+    // Step 5: Gender
+    'gender' => 'required|in:male,female,other,prefer_not_to_say',
+    
+    // Step 6: Home Country
+    'home_country' => 'required|string|max:100',
+    
+    // Step 7: Travel Styles (multi-select, minimum 1)
+    'travel_styles' => 'required|array|min:1',
+    'travel_styles.*' => 'string|in:adventure,luxury,budget,eco_friendly,cultural,solo,group,family,backpacking',
+    
+    // Step 8: Interests (multi-select, minimum 1)
+    'interests' => 'required|array|min:1',
+    'interests.*' => 'string|in:wildlife,photography,hiking,culture,food,beaches,history,nature,adventure,relaxation,nightlife,shopping,sports',
+    
+    // Step 9: Profile Photo (optional)
+    'profile_photo_path' => 'nullable|string',
+    
+    // Step 10: Notifications
+    'notifications_enabled' => 'required|boolean',
+    
+    // Step 11: Activity Preferences (multi-select, minimum 1)
+    'activity_preferences' => 'required|array|min:1',
+    'activity_preferences.*' => 'string|in:safaris,hiking,city_tours,beach_activities,cultural_visits,food_tours,photography,wildlife_watching,water_sports,mountain_climbing',
+    
+    // Step 12: Location
+    'location_enabled' => 'required|boolean',
+    'show_distance_away' => 'required|boolean',
+    
+    // Email & Password
+    'email' => 'required|email|unique:users,email',
+    'password' => 'required|string|min:8|confirmed'
+]
+4.5 Success Response (201 Created)
+{
+  "success": true,
+  "message": "Welcome to ZuriTrails! Your adventure begins now.",
+  "data": {
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "chris@example.com",
+      "first_name": "Chris",
+      "last_name": "Mutwiri",
+      "display_name": "Chris Mutwiri",
+      "photo_url": "https://storage.zuritrails.com/users/550e8400.jpg",
+      "bio": null,
+      "date_of_birth": "1995-06-15",
+      "age": 30,
+      "gender": "male",
+      "nationality": "Kenyan",
+      "home_country": "Kenya",
+      "referral_source": "google_search",
+      "interests": ["wildlife", "photography", "hiking", "culture"],
+      "travel_styles": ["adventure", "nature", "cultural"],
+      "activity_preferences": ["safaris", "hiking", "city_tours"],
+      "notifications_enabled": true,
+      "location_enabled": true,
+      "show_distance_away": true,
+      "explorer_level": "explorer",
+      "current_xp": 50,
+      "streak_days": 0,
+      "unlocked_badges": ["new_explorer"],
+      "email_verified": false,
+      "phone_verified": false,
+      "profile_completion": 80,
+      "created_at": "2026-01-15T15:31:18+03:00"
+    },
+    "token": {
+      "access_token": "1|xyz789abc123...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    },
+    "onboarding_complete": true
+  }
+}
+4.6 Backend Processing Steps
+Validate all fields
+Hash password
+Process profile photo if provided:
+Move from temp to permanent storage
+Resize to 800x800 (profile) and 200x200 (thumbnail)
+Upload to S3/Spaces
+Generate CDN URLs
+Create user record with all fields
+Store arrays as JSONB:
+interests
+travel_styles
+activity_preferences
+Set nationality from home_country
+Calculate profile_completion (80% for multi-step)
+Award "New Explorer" achievement (50 XP)
+Generate access token
+Send welcome email
+Return user + token
+5. Email Login
+Used in: 
+login_screen.dart
+
+5.1 Endpoint
+POST /api/v1/auth/login
+
+5.2 Request Body
+{
+  "email": "chris@example.com",
+  "password": "SecurePass123!",
+  "device_name": "iPhone 14 Pro",
+  "remember_me": true
+}
+5.3 Validation Rules
+[
+    'email' => 'required|email',
+    'password' => 'required|string',
+    'device_name' => 'required|string|max:255',
+    'remember_me' => 'nullable|boolean'
+]
+5.4 Success Response (200 OK)
+{
+  "success": true,
+  "message": "Welcome back, Chris!",
+  "data": {
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "chris@example.com",
+      "phone_number": "+254712345678",
+      "first_name": "Chris",
+      "last_name": "Mutwiri",
+      "display_name": "Chris Mutwiri",
+      "photo_url": "https://storage.zuritrails.com/users/550e8400.jpg",
+      "bio": "Adventure seeker exploring Kenya's hidden treasures",
+      "date_of_birth": "1995-06-15",
+      "age": 30,
+      "gender": "male",
+      "nationality": "Kenyan",
+      "home_country": "Kenya",
+      "interests": ["wildlife", "photography", "hiking", "culture"],
+      "travel_styles": ["adventure", "nature", "cultural"],
+      "explorer_level": "pathfinder",
+      "current_xp": 650,
+      "xp_to_next_level": 350,
+      "level_progress": 0.65,
+      "streak_days": 12,
+      "unlocked_badges": ["first_journey", "sunrise_hunter", "gem_finder"],
+      "profile_completion": 85,
+      "is_profile_public": true,
+      "email_verified": true,
+      "phone_verified": true,
+      "joined_date": "2025-06-15T10:30:00+03:00",
+      "last_active": "2026-01-15T14:00:00+03:00"
+    },
+    "token": {
+      "access_token": "2|def456ghi789...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    },
+    "stats": {
+      "total_journeys": 24,
+      "total_distance_km": 156.5,
+      "total_gems_discovered": 12,
+      "total_trips": 3,
+      "active_streak": true
+    },
+    "has_active_journey": false,
+    "pending_notifications": 3
+  }
+}
+5.5 Error Responses
+Invalid Credentials (401):
+
+{
+  "success": false,
+  "message": "Invalid email or password",
+  "errors": {
+    "email": ["The provided credentials are incorrect."]
+  }
+}
+Account Not Verified (403):
+
+{
+  "success": false,
+  "message": "Please verify your email before logging in",
+  "data": {
+    "email_verified": false,
+    "user_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+5.6 Backend Processing Steps
+Validate credentials
+Check if user exists
+Verify password hash
+Check email verification status (optional, based on requirements)
+Update last_active_at timestamp
+Check for active streak:
+If last active was yesterday, maintain streak
+If last active was today, keep current streak
+If gap > 1 day, reset streak to 0
+Generate access token:
+If remember_me = true, set expiry to 30 days
+If remember_me = false, set expiry to 7 days
+Fetch user stats (journeys, gems, trips)
+Check for active journey
+Count pending notifications
+Return complete user data + token
+6. Phone Authentication
+Used in: 
+phone_auth_screen.dart
+ + 
+verification_code_screen.dart
+
+6.1 Step 1: Request OTP
+POST /api/v1/auth/phone/request-otp
+
+Request:
+
+{
+  "phone_number": "+254712345678",
+  "country_code": "KE",
+  "is_signup": true
+}
+Validation:
+
+[
+    'phone_number' => 'required|string|regex:/^\+[1-9]\d{1,14}$/',
+    'country_code' => 'required|string|size:2',
+    'is_signup' => 'required|boolean'
+]
+Success Response (200 OK):
+
+{
+  "success": true,
+  "message": "Verification code sent to +254712345678",
+  "data": {
+    "verification_id": "ver_abc123def456",
+    "phone_number": "+254712345678",
+    "expires_at": "2026-01-15T15:36:18+03:00",
+    "resend_available_at": "2026-01-15T15:32:18+03:00"
+  }
+}
+Backend Processing:
+
+Validate phone number format (E.164)
+If is_signup = true:
+Check if phone already registered
+Return error if exists
+If is_signup = false:
+Check if phone exists in database
+Return error if not found
+Generate 6-digit OTP code
+Create record in phone_verifications table:
+verification_id = UUID
+otp_code = 6-digit code
+expires_at = NOW() + 5 minutes
+Send SMS via Africa's Talking / Twilio
+Return verification_id
+6.2 Step 2: Verify OTP
+POST /api/v1/auth/phone/verify-otp
+
+Request:
+
+{
+  "verification_id": "ver_abc123def456",
+  "otp_code": "123456",
+  "is_signup": true,
+  "signup_data": {
+    "first_name": "Chris",
+    "last_name": "Mutwiri",
+    "travel_styles": ["adventure"],
+    "interests": ["wildlife"]
+  }
+}
+Validation:
+
+[
+    'verification_id' => 'required|string|exists:phone_verifications,verification_id',
+    'otp_code' => 'required|string|size:6',
+    'is_signup' => 'required|boolean',
+    'signup_data' => 'required_if:is_signup,true|array',
+    'signup_data.first_name' => 'required_if:is_signup,true|string|max:100',
+    'signup_data.last_name' => 'required_if:is_signup,true|string|max:100',
+    'signup_data.travel_styles' => 'nullable|array',
+    'signup_data.interests' => 'nullable|array'
+]
+Success Response - Signup (201 Created):
+
+{
+  "success": true,
+  "message": "Phone verified! Welcome to ZuriTrails.",
+  "data": {
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "phone_number": "+254712345678",
+      "first_name": "Chris",
+      "last_name": "Mutwiri",
+      "display_name": "Chris Mutwiri",
+      "photo_url": null,
+      "explorer_level": "explorer",
+      "current_xp": 0,
+      "streak_days": 0,
+      "phone_verified": true,
+      "profile_completion": 30,
+      "created_at": "2026-01-15T15:31:18+03:00"
+    },
+    "token": {
+      "access_token": "3|jkl012mno345...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    },
+    "requires_onboarding": true
+  }
+}
+Success Response - Login (200 OK): Same structure as email login response.
+
+Error Responses:
+
+Invalid OTP (422):
+
+{
+  "success": false,
+  "message": "Invalid verification code",
+  "errors": {
+    "otp_code": ["The verification code is incorrect."]
+  }
+}
+Expired OTP (422):
+
+{
+  "success": false,
+  "message": "Verification code has expired",
+  "errors": {
+    "otp_code": ["The verification code has expired. Please request a new one."]
+  }
+}
+Backend Processing:
+
+Find verification record by verification_id
+Check if expired
+Verify OTP code matches
+Mark verification as used
+If is_signup = true:
+Create new user with phone_number
+Set phone_verified_at = NOW()
+Store signup_data if provided
+Generate token
+Return user + token with requires_onboarding = true
+If is_signup = false:
+Find user by phone_number
+Update last_active_at
+Generate token
+Return user + token
+6.3 Resend OTP
+POST /api/v1/auth/phone/resend-otp
+
+Request:
+
+{
+  "verification_id": "ver_abc123def456"
+}
+Response: Same as Step 1 (Request OTP)
+
+7. Social Login
+Used in: 
+login_screen.dart
+ (Google, Apple buttons)
+
+7.1 Endpoint
+POST /api/v1/auth/social
+
+7.2 Request Body
+{
+  "provider": "google",
+  "provider_id": "google_user_id_123456",
+  "provider_token": "google_access_token_here",
+  "emailss": "chris@gmail.com",
+  "first_name": "Chris",
+  "last_name": "Mutwiri",
+  "photo_url": "https://lh3.googleusercontent.com/a/photo.jpg",
+  "device_name": "iPhone 14 Pro"
+}
+7.3 Validation Rules
+[
+    'provider' => 'required|in:google,apple,facebook',
+    'provider_id' => 'required|string',
+    'provider_token' => 'required|string',
+    'email' => 'required|email',
+    'first_name' => 'nullable|string|max:100',
+    'last_name' => 'nullable|string|max:100',
+    'photo_url' => 'nullable|url',
+    'device_name' => 'required|string|max:255'
+]
+7.4 Success Response - Existing User (200 OK)
+{
+  "success": true,
+  "message": "Welcome back, Chris!",
+  "data": {
+    "user": { /* Full user object */ },
+    "token": {
+      "access_token": "4|pqr678stu901...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    },
+    "is_new_user": false
+  }
+}
+7.5 Success Response - New User (201 Created)
+{
+  "success": true,
+  "message": "Welcome to ZuriTrails!",
+  "data": {
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "chris@gmail.com",
+      "first_name": "Chris",
+      "last_name": "Mutwiri",
+      "display_name": "Chris Mutwiri",
+      "photo_url": "https://storage.zuritrails.com/users/550e8400.jpg",
+      "explorer_level": "explorer",
+      "current_xp": 0,
+      "streak_days": 0,
+      "email_verified": true,
+      "profile_completion": 40,
+      "created_at": "2026-01-15T15:31:18+03:00"
+    },
+    "token": {
+      "access_token": "5|vwx234yz567...",
+      "token_type": "Bearer",
+      "expires_at": "2026-02-15T15:31:18+03:00"
+    },
+    "is_new_user": true,
+    "requires_onboarding": true
+  }
+}
+7.6 Backend Processing Steps
+Verify provider token with Google/Apple/Facebook API
+Extract user info from provider
+Check if user exists:
+Search by email in users table
+Search by provider_id in social_providers table
+If user exists:
+Update last_active_at
+Update provider_token in social_providers
+Generate access token
+Return user + token with is_new_user = false
+If new user:
+Download profile photo from provider
+Upload to S3/Spaces
+Create user record:
+Set email_verified_at = NOW() (trusted provider)
+Set photo_url from provider
+Set profile_completion = 40
+Create social_providers record
+Generate access token
+Return user + token with is_new_user = true, requires_onboarding = true
+8. Password Management
+8.1 Forgot Password
+POST /api/v1/auth/password/forgot
+
+Request:
+
+{
+  "email": "chris@example.com"
+}
+Success Response (200 OK):
+
+{
+  "success": true,
+  "message": "Password reset link sent to your email"
+}
+Backend Processing:
+
+Validate email exists
+Generate password reset token
+Store in password_reset_tokens table with expiry (1 hour)
+Send email with reset link:
+Web: https://zuritrails.com/reset-password?token=abc123&email=chris@example.com
+Deep link: zuritrails://reset-password?token=abc123&email=chris@example.com
+Return success (always, even if email doesn't exist - security)
+8.2 Reset Password
+POST /api/v1/auth/password/reset
+
+Request:
+
+{
+  "email": "chris@example.com",
+  "token": "abc123def456",
+  "password": "NewSecurePass123!",
+  "password_confirmation": "NewSecurePass123!"
+}
+Success Response (200 OK):
+
+{
+  "success": true,
+  "message": "Password reset successful. Please login with your new password."
+}
+8.3 Change Password (Authenticated)
+POST /api/v1/auth/password/change
+
+Headers: Authorization: Bearer {token}
+
+Request:
+
+{
+  "current_password": "OldPass123!",
+  "password": "NewSecurePass123!",
+  "password_confirmation": "NewSecurePass123!"
+}
+Success Response (200 OK):
+
+{
+  "success": true,
+  "message": "Password changed successfully"
+}
+9. Email & Phone Verification
+9.1 Send Email Verification
+POST /api/v1/auth/email/send-verification
+
+Headers: Authorization: Bearer {token}
+
+Response:
+
+{
+  "success": true,
+  "message": "Verification email sent to chris@example.com"
+}
+9.2 Verify Email
+POST /api/v1/auth/email/verify
+
+Request:
+
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "verification_code": "abc123def456"
+}
+Response:
+
+{
+  "success": true,
+  "message": "Email verified successfully"
+}
+10. Session Management
+10.1 Logout
+POST /api/v1/auth/logout
+
+Headers: Authorization: Bearer {token}
+
+Response:
+
+{
+  "success": true,
+  "message": "Logged out successfully"
+}
+10.2 Logout All Devices
+POST /api/v1/auth/logout-all
+
+Headers: Authorization: Bearer {token}
+
+Response:
+
+{
+  "success": true,
+  "message": "Logged out from all devices"
+}
+10.3 Refresh Token
+POST /api/v1/auth/refresh
+
+Headers: Authorization: Bearer {token}
+
+Response:
+
+{
+  "success": true,
+  "data": {
+    "access_token": "6|new_token_here...",
+    "token_type": "Bearer",
+    "expires_at": "2026-02-15T15:31:18+03:00"
+  }
+}
+10.4 Get Current User
+GET /api/v1/auth/me
+
+Headers: Authorization: Bearer {token}
+
+Response:
+
+{
+  "success": true,
+  "data": {
+    "user": { /* Full user object */ },
+    "stats": { /* User stats */ }
+  }
+}
+Summary
+This API documentation is 100% aligned with the Flutter app implementation:
+
+✅ Simple Signup - Matches 
+signup_screen.dart
+ exactly
+✅ Multi-Step Signup - All 13 steps from 
+signup_flow_coordinator.dart
+
+✅ Login - Email + password with remember_me from 
+login_screen.dart
+
+✅ Phone Auth - OTP flow from 
+phone_auth_screen.dart
+ + 
+verification_code_screen.dart
+
+✅ Social Login - Google, Apple buttons from 
+login_screen.dart
+
+✅ All Data Fields - Exact match with Flutter models

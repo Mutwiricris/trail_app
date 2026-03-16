@@ -172,3 +172,9 @@ ZuriTrails is a **standalone product** integrated with:
 - Strava Features for Inspiration: [https://www.strava.com](https://www.strava.com)  
 - Hidden Gems in Kenya Trend: [https://www.nihosi.com/kenya-hidden-gems-underrated-destinations](https://www.nihosi.com/kenya-hidden-gems-underrated-destinations)
 
+
+
+
+
+
+
